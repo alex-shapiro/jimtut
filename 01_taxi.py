@@ -115,6 +115,7 @@ def main():
 
     # Calculate and plot mean curves across all runs
     masked_mean_curve = np.mean([r.episode_rewards for r in results_list], axis=0)
+    print(masked_mean_curve)
 
     plt.plot(
         masked_mean_curve, label="With Action Masking (Mean)", color="blue", linewidth=2
