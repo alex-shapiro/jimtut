@@ -49,7 +49,7 @@ class CartPoleAgent:
 
         # other hyperparameters
         self.discount_factor = 0.99
-        self.learning_rate = 1e-3
+        self.learning_rate = 1e-4
         self.batch_size = 64
 
         # models
