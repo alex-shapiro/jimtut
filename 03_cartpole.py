@@ -1,15 +1,15 @@
+import time
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-import time
 from typing import final, override
-import warnings
+
 import gymnasium as gym
+import numpy as np
+import torch
 from gymnasium.spaces import Box, Discrete
 from gymnasium.wrappers import RecordVideo
-import numpy as np
 from numpy import ndarray
-import torch
-
 from torch import Tensor, nn
 from torch.optim import Adam
 
@@ -49,7 +49,7 @@ class CartPoleAgent:
 
         # other hyperparameters
         self.discount_factor = 0.99
-        self.learning_rate = 1e-3
+        self.learning_rate = 1e-4
         self.batch_size = 64
 
         # models

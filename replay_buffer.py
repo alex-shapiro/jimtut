@@ -1,8 +1,8 @@
 from dataclasses import dataclass
+from typing import final
+
 import numpy as np
 import torch
-
-from typing import final
 from gymnasium.spaces import Box, Discrete
 from torch import Tensor
 from torch._prims_common import DeviceLikeType

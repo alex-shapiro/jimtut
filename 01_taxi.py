@@ -1,14 +1,11 @@
-from pathlib import Path
 import random
+from dataclasses import dataclass
+from pathlib import Path
 
 import gymnasium as gym
-import numpy as np
 import matplotlib.pyplot as plt
-
-from dataclasses import dataclass
-from typing import Any
+import numpy as np
 from numpy._typing import NDArray
-
 
 SEED = 58922320
 
