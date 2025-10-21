@@ -6,7 +6,6 @@ import numpy as np
 
 from chart import plot_rewards
 
-
 SEED = 58922320
 
 
