@@ -7,7 +7,6 @@ Learning RL from [Gymnasium](https://github.com/Farama-Foundation/Gymnasium/) en
 - Python managed by `uv`
 - Numpy for classical RL
 - PyTorch for NNs
-- Rust for faster envs? CartPole is super slow in Python.
 
 ## Getting started
 
