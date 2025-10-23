@@ -1,4 +1,5 @@
-# Acrobot, this time with Policy Optimization (not PPO)
+# Acrobot, this time with simple Policy Optimization (not PPO)
+# It doesn't do much better than DQN but it is slightly more consistent at hill-climbing.
 
 from dataclasses import dataclass
 import gymnasium as gym
@@ -7,7 +8,6 @@ import torch
 from gymnasium.spaces import Box, Discrete
 from typing import final, override
 from torch import Tensor, float32, int32, nn
-from torch._prims_common import DeviceLikeType
 from torch.distributions import Categorical
 from torch.optim import AdamW
 
@@ -65,10 +65,10 @@ class AcrobotPOAgent:
                 batch.actions.append(action)
                 state, reward, terminated, truncated, _ = self.env.step(action)
                 done = done or truncated
-                step += 1
                 episode_reward += float(reward)
                 episode_len += 1
             batch.rewards.extend([episode_reward] * episode_len)
+            step += episode_len
         print("simulated epoch")
         return batch
 
