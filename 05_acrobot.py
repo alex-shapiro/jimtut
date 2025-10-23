@@ -21,6 +21,9 @@ class AcrobotPOAgent:
         action_space: Discrete = self.env.action_space  # pyright: ignore[reportAssignmentType]
 
         # RNG seed
+        np.random.seed(seed)
+        torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
+        self.env.action_space.seed(seed)  # pyright: ignore[reportUnusedCallResult]
         self.seed = seed
 
         # training & model
