@@ -1,15 +1,19 @@
+# Mujoco Ant agent using PPO (proximal policy optimization)
+
+from dataclasses import dataclass
 from typing import final
 
 import gymnasium as gym
 import numpy as np
 import torch
+from torch.optim import AdamW
 from gym.spaces import Box, Discrete
 from torch import Tensor, nn
 from torch.distributions import Categorical, Normal
 
 
 @final
-class PPOAgent:
+class AntAgent:
     def __init__(
         self,
         seed: int = 2025,
@@ -19,7 +23,7 @@ class PPOAgent:
         clip_ratio: float = 0.2,
         pi_lr: float = 3e-4,
         value_lr: float = 1e-3,
-        train_pi_iters: int = 80,
+        train_policy_iters: int = 80,
         train_value_iters: int = 80,
         lamda: float = 0.97,
         max_episode_length: int = 1000,
@@ -27,6 +31,104 @@ class PPOAgent:
         save_frequency: int = 10,
     ):
         super().__init__()
+
+        self.env = gym.make("Ant-v5")
+        state_space: Box = self.env.observation_space
+        action_space: Box = self.env.action_space
+
+        # RNG seeds
+        np.random.seed(seed)
+        torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
+        self.env.action_space.seed(seed)  # pyright: ignore[reportUnusedCallResult]
+        self.seed = seed
+
+        # trajectory buffer
+        self.trajectories = TrajectoryBuffer(
+            capacity=4000,
+            state_shape=state_space.shape,
+            action_shape=action_space.shape,
+        )
+
+        # hyperparameters
+        self.steps_per_epoch = steps_per_epoch
+        self.epochs = epochs
+        self.gamma = gamma
+        self.clip_ratio = clip_ratio
+        self.train_policy_iters = train_policy_iters
+        self.train_value_iters = train_value_iters
+        self.lamda = lamda
+        self.max_episode_length = max_episode_length
+        self.target_kl = target_kl
+        self.save_frequency = save_frequency
+
+        # models
+        self.device = torch.device("cpu")
+        self.actor_critic = ActorCritic(
+            state_space=state_space,
+            action_space=action_space,
+        )
+        self.policy_optimizer = AdamW(self.actor_critic.pi.parameters(), lr=pi_lr)
+        self.value_optimizer = AdamW(self.actor_critic.v.parameters(), lr=value_lr)
+
+    def train(self):
+        pass
+
+    def update(self):
+        batch = self.trajectories.get_batch()
+        policy_loss_old, policy_info_old = self.policy_loss(batch)
+        value_loss_old = self.value_loss(batch)
+
+        # train policy
+        for i in range(self.train_policy_iters):
+            self.policy_optimizer.zero_grad()
+            policy_loss, policy_info = self.policy_loss(batch)
+            if policy_info.approximate_kl > 1.5 * self.target_kl:
+                print(f"early stopping at step {i} due to reaching max KL")
+                break
+            policy_loss.backward()
+            self.policy_optimizer.step()
+
+        # learn value function
+        for i in range(self.train_value_iters):
+            self.value_optimizer.zero_grad()
+            value_loss = self.value_loss(batch)
+            value_loss.backward()
+            self.value_optimizer.step()
+
+        # log changes from the update
+        print(f"policy loss: {policy_loss_old}")
+        print(f"value loss: {value_loss_old}")
+        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}")
+        print(f"Δ value loss: {value_loss.item() - value_loss_old}")
+
+    def policy_loss(self, batch: "TrajectoryBatch") -> tuple[Tensor, "PolicyInfo"]:
+        # policy loss
+        pi: Normal
+        logp: Tensor
+        pi, logp = self.actor_critic.pi(batch.states, batch.actions)
+        ratio = torch.exp(logp - batch.logp)
+        clipped_adv = torch.clamp(ratio, 1 - self.clip_ratio)
+        policy_loss = (torch.min(ratio * batch.adv, clipped_adv)).mean()
+
+        # additional policy info
+        approximate_kl = (batch.logp - logp).mean().item()
+        mean_entropy = pi.entropy().mean().item()
+        clipped_fraction = (
+            (ratio.gt(1 + self.clip_ratio) | ratio.lt(1 - self.clip_ratio))
+            .to(torch.float32)
+            .mean()
+            .item()
+        )
+        policy_info = PolicyInfo(
+            approximate_kl=approximate_kl,
+            mean_entropy=mean_entropy,
+            clipped_fraction=clipped_fraction,
+        )
+
+        return policy_loss, policy_info
+
+    def value_loss(self, batch: "TrajectoryBatch") -> Tensor:
+        return ((self.actor_critic.v(batch.state) - batch.returns) ** 2).mean()
 
 
 @final
@@ -203,6 +305,26 @@ class TrajectoryBuffer:
     def push_trajectory_end(self, last_val: float = 0.0):
         """TODO"""
         pass
+
+    def get_batch(self) -> "TrajectoryBatch":
+        """TODO"""
+        pass
+
+
+@dataclass
+class TrajectoryBatch:
+    states: np.ndarray
+    actions: np.ndarray
+    advantages: np.ndarray
+    logp: Tensor
+    returns: np.ndarray
+
+
+@dataclass
+class PolicyInfo:
+    approximate_kl: float
+    entropy: float
+    clipped_fraction: float
 
 
 def count_parameters(module: nn.Module) -> int:
