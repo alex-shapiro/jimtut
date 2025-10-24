@@ -71,7 +71,35 @@ class AntAgent:
         self.value_optimizer = AdamW(self.actor_critic.v.parameters(), lr=value_lr)
 
     def train(self):
-        pass
+        for epoch in range(self.epochs):
+            print()
+            print(f"Epoch {epoch}")
+            state, _ = self.env.reset()
+            episode_return = 0
+            episode_length = 0
+
+            for t in range(self.steps_per_epoch):
+                action, logp_action, value = self.actor_critic.step(state)
+                next_state, reward, done, truncated, _ = self.env.step(action)
+                episode_return += value
+                episode_length += 1
+
+                self.trajectories.push(
+                    state=state,
+                    action=action,
+                    reward=reward,
+                    value=value,
+                    logp=logp_action,
+                )
+
+                state = next_state
+                if done or truncated or (t == self.steps_per_epoch - 1):
+                    self.trajectories.push_episode_end(value)
+                    state, _ = self.env.reset()
+                    episode_return = 0
+                    episode_length = 0
+
+            self.update()
 
     def update(self):
         batch = self.trajectories.get_batch()
@@ -302,7 +330,7 @@ class TrajectoryBuffer:
         self.logps[self.next_index] = logp
         self.next_index += 1
 
-    def push_trajectory_end(self, last_val: float = 0.0):
+    def push_episode_end(self, last_val: float = 0.0):
         """TODO"""
         pass
 
@@ -338,7 +366,5 @@ def discount_cumulative_sum(x: np.ndarray, discount: float) -> float:
 
 
 if __name__ == "__main__":
-    print("Hello")
-    # agent = PPOAgent()
-    # agent.train()
-    # agent.evaluate(n_episodes=3, visible=True)
+    agent = AntAgent()
+    agent.train()
