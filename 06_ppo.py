@@ -42,6 +42,7 @@ class TrajectoryBuffer:
         self.next_index += 1
 
     def push_trajectory_end(self, last_val: float = 0.0):
+        """TODO"""
         pass
 
 
@@ -183,11 +184,11 @@ def count_parameters(module: nn.Module) -> int:
 
 
 def discount_cumulative_sum(x: np.ndarray, discount: float) -> float:
-    """Compute discounted cumulative sum of vectors"""
+    """TODO: Compute discounted cumulative sum of vectors"""
     pass
 
 
 if __name__ == "__main__":
-    agent = PPOAgent()
-    agent.train()
-    agent.evaluate(n_episodes=3, visible=True)
+    # agent = PPOAgent()
+    # agent.train()
+    # agent.evaluate(n_episodes=3, visible=True)
