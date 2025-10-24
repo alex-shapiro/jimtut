@@ -1,56 +1,38 @@
 from typing import final
 
 import gymnasium as gym
-from gymnasium.spaces import Box, Discrete
 import numpy as np
 import torch
+from gym.spaces import Box, Discrete
 from torch import Tensor, nn
 from torch.distributions import Categorical, Normal
 
 
 @final
-class TrajectoryBuffer:
+class PPOAgent:
     def __init__(
         self,
-        capacity: int,
-        state_shape: list[int],
-        action_shape: list[int],
+        seed: int = 2025,
+        steps_per_epoch: int = 4000,
+        epochs: int = 50,
         gamma: float = 0.99,
-        lamda: float = 0.95,
+        clip_ratio: float = 0.2,
+        pi_lr: float = 3e-4,
+        value_lr: float = 1e-3,
+        train_pi_iters: int = 80,
+        train_value_iters: int = 80,
+        lamda: float = 0.97,
+        max_episode_length: int = 1000,
+        target_kl: float = 0.01,
+        save_frequency: int = 10,
     ):
-        self.states = np.zeros([capacity, *state_shape], dtype=np.float32)
-        self.actions = np.zeros([capacity, *action_shape], dtype=np.float32)
-        self.advantages = np.zeros(capacity, dtype=np.float32)
-        self.rewards = np.zeros(capacity, dtype=np.float32)
-        self.returns = np.zeros(capacity, dtype=np.float32)
-        self.values = np.zeros(capacity, dtype=np.float32)
-        self.logps = np.zeros(capacity, dtype=np.float32)
-        self.gamma = gamma
-        self.lamda = lamda
-        self.next_index = 0
-        self.trajectory_start_index = 0
-        self.capacity = capacity
-
-    def push(
-        self, state: np.array, action: float, reward: float, value: float, logp: float
-    ):
-        self.states[self.next_index] = state
-        self.actions[self.next_index] = action
-        self.rewards[self.next_index] = reward
-        self.values[self.next_index] = value
-        self.logps[self.next_index] = logp
-        self.next_index += 1
-
-    def push_trajectory_end(self, last_val: float = 0.0):
-        """TODO"""
-        pass
+        super().__init__()
 
 
-def ppo(env: gym.Env):
-    pass
-
-
+@final
 class CategoricalActor(nn.Module):
+    """Policy prediction over discrete 1D action spaces"""
+
     def __init__(
         self,
         d_state: int,
@@ -86,7 +68,10 @@ class CategoricalActor(nn.Module):
         return policy.log_prob(action)
 
 
+@final
 class GaussianActor(nn.Module):
+    """Policy prediction over continuous 1D action spaces"""
+
     def __init__(
         self,
         d_state: int,
@@ -121,7 +106,10 @@ class GaussianActor(nn.Module):
         return policy.log_prob(action).sum(axis=-1)
 
 
+@final
 class Critic(nn.Module):
+    """Value prediction over 1D spaces"""
+
     def __init__(self, d_state: int, d_hidden: int, activation: nn.Module):
         super().__init__()
         self.value_net = nn.Sequential(
@@ -136,6 +124,7 @@ class Critic(nn.Module):
         return self.value_net(states).squeeze(-1)
 
 
+@final
 class ActorCritic(nn.Module):
     def __init__(
         self,
@@ -178,6 +167,44 @@ class ActorCritic(nn.Module):
             return self.pi._policy(state).sample().numpy()
 
 
+@final
+class TrajectoryBuffer:
+    def __init__(
+        self,
+        capacity: int,
+        state_shape: list[int],
+        action_shape: list[int],
+        gamma: float = 0.99,
+        lamda: float = 0.95,
+    ):
+        self.states = np.zeros([capacity, *state_shape], dtype=np.float32)
+        self.actions = np.zeros([capacity, *action_shape], dtype=np.float32)
+        self.advantages = np.zeros(capacity, dtype=np.float32)
+        self.rewards = np.zeros(capacity, dtype=np.float32)
+        self.returns = np.zeros(capacity, dtype=np.float32)
+        self.values = np.zeros(capacity, dtype=np.float32)
+        self.logps = np.zeros(capacity, dtype=np.float32)
+        self.gamma = gamma
+        self.lamda = lamda
+        self.next_index = 0
+        self.trajectory_start_index = 0
+        self.capacity = capacity
+
+    def push(
+        self, state: np.array, action: float, reward: float, value: float, logp: float
+    ):
+        self.states[self.next_index] = state
+        self.actions[self.next_index] = action
+        self.rewards[self.next_index] = reward
+        self.values[self.next_index] = value
+        self.logps[self.next_index] = logp
+        self.next_index += 1
+
+    def push_trajectory_end(self, last_val: float = 0.0):
+        """TODO"""
+        pass
+
+
 def count_parameters(module: nn.Module) -> int:
     """Computes the total number of parameters in a NN module"""
     return sum(np.prod(p.shape) for p in module.parameters())
@@ -189,6 +216,7 @@ def discount_cumulative_sum(x: np.ndarray, discount: float) -> float:
 
 
 if __name__ == "__main__":
+    print("Hello")
     # agent = PPOAgent()
     # agent.train()
     # agent.evaluate(n_episodes=3, visible=True)
