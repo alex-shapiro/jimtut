@@ -330,12 +330,29 @@ class TrajectoryBuffer:
         self.logps[self.next_index] = logp
         self.next_index += 1
 
-    def push_episode_end(self, last_val: float = 0.0):
+    def push_episode_end(self, final_value: float = 0.0):
         """TODO"""
+        # path_slice = slice(self.path_start_idx, self.ptr)
+        # rews = np.append(self.rew_buf[path_slice], last_val)
+        # vals = np.append(self.val_buf[path_slice], last_val)
+        # # the next two lines implement GAE-Lambda advantage calculation
+        # deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
+        # self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
+        # # the next line computes rewards-to-go, to be targets for the value function
+        # self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
+        # self.path_start_idx = self.ptr
         pass
 
     def get_batch(self) -> "TrajectoryBatch":
         """TODO"""
+        # assert self.ptr == self.max_size    # buffer has to be full before you can get
+        # self.ptr, self.path_start_idx = 0, 0
+        # # the next two lines implement the advantage normalization trick
+        # adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
+        # self.adv_buf = (self.adv_buf - adv_mean) / adv_std
+        # data = dict(obs=self.obs_buf, act=self.act_buf, ret=self.ret_buf,
+        #             adv=self.adv_buf, logp=self.logp_buf)
+        # return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
         pass
 
 
