@@ -391,16 +391,19 @@ class PolicyInfo:
 
 
 def count_parameters(module: nn.Module) -> int:
-    """Computes the total number of parameters in a NN module"""
+    """Returns the total number of parameters in a NN module"""
     return sum(np.prod(p.shape) for p in module.parameters())
 
 
 def cumulative_sum(x: np.ndarray, gamma: float) -> np.ndarray:
-    """Returns the discounted cumulative sum of a vector's elements"""
-    result = np.empty_like(x)
+    """
+    Returns the discounted cumulative sum of vector elements
+    Example: cs([1,2,3], 0.95) => [5.59325, 4.835, 3]
+    """
+    result = np.empty_like(x, dtype=np.float32)
     result[-1] = x[-1]
     for i in reversed(range(len(x) - 1)):
-        result[i] = x[i] + gamma * x[i + 1]
+        result[i] = x[i] + gamma * result[i + 1]
     return result
 
 
