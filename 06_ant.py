@@ -79,22 +79,23 @@ class AntAgent:
             episode_length = 0
 
             for t in range(self.steps_per_epoch):
-                action, logp_action, value = self.actor_critic.step(state)
+                action, logp_action, expected_value = self.actor_critic.step(state)
                 next_state, reward, done, truncated, _ = self.env.step(action)
-                episode_return += value
+                episode_return += expected_value
                 episode_length += 1
 
                 self.trajectories.push(
                     state=state,
                     action=action,
-                    reward=reward,
-                    value=value,
                     logp=logp_action,
+                    expected_value=expected_value,
+                    reward=reward,
                 )
 
                 state = next_state
                 if done or truncated or (t == self.steps_per_epoch - 1):
-                    self.trajectories.push_episode_end(value)
+                    _, _, expected_value = self.actor_critic.step(state)
+                    self.trajectories.push_episode_end(expected_value)
                     state, _ = self.env.reset()
                     episode_return = 0
                     episode_length = 0
@@ -312,26 +313,44 @@ class TrajectoryBuffer:
         self.advantages = np.zeros(capacity, dtype=np.float32)
         self.rewards = np.zeros(capacity, dtype=np.float32)
         self.returns = np.zeros(capacity, dtype=np.float32)
-        self.values = np.zeros(capacity, dtype=np.float32)
+        self.expected_values = np.zeros(capacity, dtype=np.float32)
         self.logps = np.zeros(capacity, dtype=np.float32)
         self.gamma = gamma
         self.lamda = lamda
         self.next_index = 0
-        self.trajectory_start_index = 0
+        self.espisode_start_index = 0
         self.capacity = capacity
 
     def push(
-        self, state: np.array, action: float, reward: float, value: float, logp: float
+        self,
+        state: np.ndarray,
+        action: float,
+        logp: float,
+        expected_value: float,
+        reward: float,
     ):
         self.states[self.next_index] = state
         self.actions[self.next_index] = action
-        self.rewards[self.next_index] = reward
-        self.values[self.next_index] = value
         self.logps[self.next_index] = logp
+        self.expected_values[self.next_index] = expected_value
+        self.rewards[self.next_index] = reward
         self.next_index += 1
 
-    def push_episode_end(self, final_value: float = 0.0):
-        """TODO"""
+    def push_episode_end(self, predicted_value: float = 0.0):
+        range = slice(self.espisode_start_index, self.next_index)
+        values = np.append(self.expected_values[range], np.array(predicted_value))
+        rewards = np.append(self.rewards[range], np.array(predicted_value))
+        # calculate GAE-Lambda advantage
+        # all rewards except the last one
+        # plus discounted values
+        deltas = rewards[:-1] + self.gamma * values[1:] - values[:-1]  # ???
+        self.advantages[range] = discount_cumulative_sum(
+            deltas,
+            self.gamma * self.lamda,
+        )
+        self.returns[range] = discount_cumulative_sum(rewards, self.gamma)[:-1]
+        self.espisode_start_index = self.next_index
+
         # path_slice = slice(self.path_start_idx, self.ptr)
         # rews = np.append(self.rew_buf[path_slice], last_val)
         # vals = np.append(self.val_buf[path_slice], last_val)
@@ -341,12 +360,11 @@ class TrajectoryBuffer:
         # # the next line computes rewards-to-go, to be targets for the value function
         # self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
         # self.path_start_idx = self.ptr
-        pass
 
     def get_batch(self) -> "TrajectoryBatch":
         """TODO"""
-        # assert self.ptr == self.max_size    # buffer has to be full before you can get
-        # self.ptr, self.path_start_idx = 0, 0
+        assert self.next_index == self.capacity
+        self.ptr, self.espisode_start_index = 0, 0
         # # the next two lines implement the advantage normalization trick
         # adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         # self.adv_buf = (self.adv_buf - adv_mean) / adv_std
@@ -377,9 +395,13 @@ def count_parameters(module: nn.Module) -> int:
     return sum(np.prod(p.shape) for p in module.parameters())
 
 
-def discount_cumulative_sum(x: np.ndarray, discount: float) -> float:
-    """TODO: Compute discounted cumulative sum of vectors"""
-    pass
+def cumulative_sum(x: np.ndarray, gamma: float) -> np.ndarray:
+    """Returns the discounted cumulative sum of a vector's elements"""
+    result = np.empty_like(x)
+    result[-1] = x[-1]
+    for i in reversed(range(len(x) - 1)):
+        result[i] = x[i] + gamma * x[i + 1]
+    return result
 
 
 if __name__ == "__main__":
