@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 from torch.optim import AdamW
-from gym.spaces import Box, Discrete
+from gymnasium.spaces import Box, Discrete
 from torch import Tensor, nn
 from torch.distributions import Categorical, Normal
 
@@ -32,21 +32,21 @@ class AntAgent:
     ):
         super().__init__()
 
-        self.env = gym.make("Ant-v5")
-        state_space: Box = self.env.observation_space
-        action_space: Box = self.env.action_space
+        self.env: gym.Env[np.ndarray, np.ndarray] = gym.make("Ant-v5") # pyright: ignore[reportUnknownMemberType]
+        state_space: Box = self.env.observation_space # pyright: ignore[reportAssignmentType]
+        action_space: Box = self.env.action_space # pyright: ignore[reportAssignmentType]
 
         # RNG seeds
         np.random.seed(seed)
         torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
-        self.env.action_space.seed(seed)  # pyright: ignore[reportUnusedCallResult]
+        self.env.action_space.seed(seed)  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
         self.seed = seed
 
         # trajectory buffer
         self.trajectories = TrajectoryBuffer(
             capacity=4000,
-            state_shape=state_space.shape,
-            action_shape=action_space.shape,
+            state_shape=list(state_space.shape),
+            action_shape=list(action_space.shape),
         )
 
         # hyperparameters
@@ -72,14 +72,13 @@ class AntAgent:
 
     def train(self):
         for epoch in range(self.epochs):
-            print()
-            print(f"Epoch {epoch}")
+            print(f"\nEpoch {epoch}")
             state, _ = self.env.reset()
             episode_return = 0
             episode_length = 0
 
             for t in range(self.steps_per_epoch):
-                action, logp_action, expected_value = self.actor_critic.step(state)
+                action, logp_action, expected_value = self.actor_critic.step(torch.as_tensor(state))
                 next_state, reward, done, truncated, _ = self.env.step(action)
                 episode_return += expected_value
                 episode_length += 1
@@ -87,14 +86,14 @@ class AntAgent:
                 self.trajectories.push(
                     state=state,
                     action=action,
-                    logp=logp_action,
-                    expected_value=expected_value,
-                    reward=reward,
+                    logp=float(logp_action),
+                    expected_value=float(expected_value),
+                    reward=float(reward),
                 )
 
                 state = next_state
                 if done or truncated or (t == self.steps_per_epoch - 1):
-                    _, _, expected_value = self.actor_critic.step(state)
+                    _, _, expected_value = self.actor_critic.step(torch.as_tensor(state))
                     self.trajectories.push_episode_end(expected_value)
                     state, _ = self.env.reset()
                     episode_return = 0
@@ -344,11 +343,11 @@ class TrajectoryBuffer:
         # all rewards except the last one
         # plus discounted values
         deltas = rewards[:-1] + self.gamma * values[1:] - values[:-1]  # ???
-        self.advantages[range] = discount_cumulative_sum(
+        self.advantages[range] = cumulative_sum(
             deltas,
             self.gamma * self.lamda,
         )
-        self.returns[range] = discount_cumulative_sum(rewards, self.gamma)[:-1]
+        self.returns[range] = cumulative_sum(rewards, self.gamma)[:-1]
         self.espisode_start_index = self.next_index
 
         # path_slice = slice(self.path_start_idx, self.ptr)
