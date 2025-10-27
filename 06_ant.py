@@ -81,14 +81,12 @@ class AntAgent:
         for epoch in range(1, self.epochs + 1):
             print(f"\nEpoch {epoch}")
             state, _ = self.env.reset()
-            episode_return = 0.0
 
             for t in range(self.steps_per_epoch):
                 action, logp_action, value = self.actor_critic.step(
                     torch.as_tensor(state, dtype=torch.float32)
                 )
                 next_state, reward, done, truncated, _ = self.env.step(action)
-                episode_return += float(reward)
 
                 self.trajectories.push(
                     state=state,
@@ -106,7 +104,6 @@ class AntAgent:
                     is_truncated = truncated or t == self.steps_per_epoch - 1
                     self.trajectories.push_episode_end(value, is_truncated=is_truncated)
                     state, _ = self.env.reset()
-                    episode_return = 0
 
             self.update()
             if epoch % 20 == 0:
@@ -169,10 +166,7 @@ class AntAgent:
         approximate_kl = (batch.logps - logps).mean().item()
         mean_entropy = pi.entropy().mean().item()
         clipped_fraction = (
-            (ratio.gt(1 + self.clip_ratio) | ratio.lt(1 - self.clip_ratio))
-            .to(torch.float32)
-            .mean()
-            .item()
+            (ratio.gt(max) | ratio.lt(min)).to(torch.float32).mean().item()
         )
         policy_info = PolicyInfo(
             approximate_kl=approximate_kl,
@@ -350,7 +344,7 @@ class TrajectoryBuffer:
         self.values = np.zeros(capacity, dtype=np.float32)
         # action log probabilities
         self.logps = np.zeros(capacity, dtype=np.float32)
-        # disctount factor
+        # discount factor
         self.gamma = gamma
         # ???
         self.lamda = lamda
