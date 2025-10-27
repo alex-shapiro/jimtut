@@ -79,23 +79,23 @@ class AntAgent:
             episode_length = 0
 
             for t in range(self.steps_per_epoch):
-                action, logp_action, expected_value = self.actor_critic.step(torch.as_tensor(state))
+                action, logp_action, value = self.actor_critic.step(torch.as_tensor(state))
                 next_state, reward, done, truncated, _ = self.env.step(action)
-                episode_return += expected_value
+                episode_return += value
                 episode_length += 1
 
                 self.trajectories.push(
                     state=state,
                     action=action,
                     logp=float(logp_action),
-                    expected_value=float(expected_value),
+                    value=float(value),
                     reward=float(reward),
                 )
 
                 state = next_state
                 if done or truncated or (t == self.steps_per_epoch - 1):
-                    _, _, expected_value = self.actor_critic.step(torch.as_tensor(state))
-                    self.trajectories.push_episode_end(expected_value)
+                    _, _, value = self.actor_critic.step(torch.as_tensor(state))
+                    self.trajectories.push_episode_end(value)
                     state, _ = self.env.reset()
                     episode_return = 0
                     episode_length = 0
@@ -104,7 +104,9 @@ class AntAgent:
 
     def update(self):
         batch = self.trajectories.get_batch()
-        policy_loss_old, policy_info_old = self.policy_loss(batch)
+        policy_loss = torch.zeros(1)
+        value_loss = torch.zeros(1)
+        policy_loss_old, _ = self.policy_loss(batch)
         value_loss_old = self.value_loss(batch)
 
         # train policy
@@ -114,33 +116,34 @@ class AntAgent:
             if policy_info.approximate_kl > 1.5 * self.target_kl:
                 print(f"early stopping at step {i} due to reaching max KL")
                 break
-            policy_loss.backward()
-            self.policy_optimizer.step()
+            policy_loss.backward() # pyright: ignore[reportUnknownMemberType]
+            self.policy_optimizer.step() # pyright: ignore[reportUnknownMemberType]
 
         # learn value function
         for i in range(self.train_value_iters):
             self.value_optimizer.zero_grad()
             value_loss = self.value_loss(batch)
-            value_loss.backward()
-            self.value_optimizer.step()
+            value_loss.backward() # pyright: ignore[reportUnknownMemberType]
+            self.value_optimizer.step() # pyright: ignore[reportUnknownMemberType]
 
         # log changes from the update
         print(f"policy loss: {policy_loss_old}")
         print(f"value loss: {value_loss_old}")
-        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}")
-        print(f"Δ value loss: {value_loss.item() - value_loss_old}")
+        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}") # pyright: ignore[reportUnknownMemberType]
+        print(f"Δ value loss: {value_loss.item() - value_loss_old}") # pyright: ignore[reportUnknownMemberType]
 
     def policy_loss(self, batch: "TrajectoryBatch") -> tuple[Tensor, "PolicyInfo"]:
         # policy loss
         pi: Normal
-        logp: Tensor
-        pi, logp = self.actor_critic.pi(batch.states, batch.actions)
-        ratio = torch.exp(logp - batch.logp)
+        logps: Tensor
+        batch_logps = torch.as_tensor(batch.logps)
+        pi, logps = self.actor_critic.pi(batch.states, batch.actions)
+        ratio = torch.exp(logps - torch.as_tensor(batch_logps))
         clipped_adv = torch.clamp(ratio, 1 - self.clip_ratio)
-        policy_loss = (torch.min(ratio * batch.adv, clipped_adv)).mean()
+        policy_loss = (torch.min(ratio * torch.as_tensor(batch.advantages), clipped_adv)).mean()
 
         # additional policy info
-        approximate_kl = (batch.logp - logp).mean().item()
+        approximate_kl = (batch_logps - logps).mean().item()
         mean_entropy = pi.entropy().mean().item()
         clipped_fraction = (
             (ratio.gt(1 + self.clip_ratio) | ratio.lt(1 - self.clip_ratio))
@@ -157,7 +160,8 @@ class AntAgent:
         return policy_loss, policy_info
 
     def value_loss(self, batch: "TrajectoryBatch") -> Tensor:
-        return ((self.actor_critic.v(batch.state) - batch.returns) ** 2).mean()
+        state = torch.as_tensor(batch.states)
+        return ((self.actor_critic.v(state) - batch.returns) ** 2).mean()
 
 
 @final
@@ -262,36 +266,36 @@ class ActorCritic(nn.Module):
         state_space: Box,
         action_space: Box | Discrete,
         d_hidden: int = 64,
-        activation: nn.Module = nn.Tanh,
+        activation: nn.Module = nn.Tanh, # pyright: ignore[reportArgumentType]
     ):
         super().__init__() # pyright: ignore[reportUnknownMemberType]
         if isinstance(action_space, Box):
             self.pi = GaussianActor(
-                d_space=state_space.shape[0],
-                d_action=state_space.shape[0],
+                d_state=state_space.shape[0],
                 d_hidden=d_hidden,
+                d_action=action_space.shape[0],
                 activation=activation,
             )
         else:
             self.pi = CategoricalActor(
-                d_space=state_space.shape[0],
-                d_action=state_space.n,
+                d_state=state_space.shape[0],
+                d_action=int(action_space.n),
                 d_hidden=d_hidden,
                 activation=activation,
             )
         self.v = Critic(
-            d_space=state_space.shape[0],
+            d_state=state_space.shape[0],
             d_hidden=d_hidden,
             activation=activation,
         )
 
-    def step(self, state: Tensor) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def step(self, state: Tensor) -> tuple[np.ndarray, np.ndarray, float]:
         with torch.no_grad():
             policy = self.pi.policy(state)
             action = policy.sample()
-            logp_action = self.pi.logprob(policy, action)
-            v = self.v(state)
-            return (action.numpy(), logp_action.numpy(), v.numpy())
+            logp_action = self.pi.logprob(policy, action) # pyright: ignore[reportArgumentType]
+            v = float(self.v(state))
+            return (action.numpy(), logp_action.numpy(), v)
 
     def act(self, state: Tensor) -> np.ndarray:
         with torch.no_grad():
@@ -308,17 +312,29 @@ class TrajectoryBuffer:
         gamma: float = 0.99,
         lamda: float = 0.95,
     ):
+        # env states
         self.states = np.zeros([capacity, *state_shape], dtype=np.float32)
+        # predicted actions
         self.actions = np.zeros([capacity, *action_shape], dtype=np.float32)
+        # action advantages
         self.advantages = np.zeros(capacity, dtype=np.float32)
+        # action rewards
         self.rewards = np.zeros(capacity, dtype=np.float32)
+        # discounted cumulative future rewards for the state
         self.returns = np.zeros(capacity, dtype=np.float32)
-        self.expected_values = np.zeros(capacity, dtype=np.float32)
+        # predicted env state values
+        self.values = np.zeros(capacity, dtype=np.float32)
+        # action log probabilities
         self.logps = np.zeros(capacity, dtype=np.float32)
+        # disctount factor
         self.gamma = gamma
+        # ???
         self.lamda = lamda
+        # index for the next insert
         self.next_index = 0
+        # index for the start of the current episode
         self.espisode_start_index = 0
+        # buffer capacity
         self.capacity = capacity
 
     def push(
@@ -326,52 +342,46 @@ class TrajectoryBuffer:
         state: np.ndarray,
         action: np.ndarray,
         logp: float,
-        expected_value: float,
+        value: float,
         reward: float,
     ):
         self.states[self.next_index] = state
         self.actions[self.next_index] = action
         self.logps[self.next_index] = logp
-        self.expected_values[self.next_index] = expected_value
+        self.values[self.next_index] = value
         self.rewards[self.next_index] = reward
         self.next_index += 1
 
-    def push_episode_end(self, predicted_value: float = 0.0):
+    def push_episode_end(self, value: float):
         range = slice(self.espisode_start_index, self.next_index)
-        values = np.append(self.expected_values[range], np.array(predicted_value))
-        rewards = np.append(self.rewards[range], np.array(predicted_value))
+        ep_values = np.append(self.values[range], np.array(value))
+        ep_rewards = np.append(self.rewards[range], np.array(value))
         # calculate GAE-Lambda advantage
         # all rewards except the last one
         # plus discounted values
-        deltas = rewards[:-1] + self.gamma * values[1:] - values[:-1]  # ???
-        self.advantages[range] = cumulative_sum(
-            deltas,
-            self.gamma * self.lamda,
-        )
-        self.returns[range] = cumulative_sum(rewards, self.gamma)[:-1]
-        self.espisode_start_index = self.next_index
+        # for each action, calculate R_st,at +  V_st
+        deltas = ep_rewards[:-1] + self.gamma * ep_values[1:] - ep_values[:-1]  # ???
+        self.advantages[range] = cumulative_sum(deltas, self.gamma * self.lamda)
 
-        # path_slice = slice(self.path_start_idx, self.ptr)
-        # rews = np.append(self.rew_buf[path_slice], last_val)
-        # vals = np.append(self.val_buf[path_slice], last_val)
-        # # the next two lines implement GAE-Lambda advantage calculation
-        # deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
-        # self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
-        # # the next line computes rewards-to-go, to be targets for the value function
-        # self.ret_buf[path_slice] = core.discount_cumsum(rews, self.gamma)[:-1]
-        # self.path_start_idx = self.ptr
+        # set returns (rewards-to-go) as the cumulative sum of episode rewards
+        self.returns[range] = cumulative_sum(ep_rewards, self.gamma)[:-1]
+        self.espisode_start_index = self.next_index
 
     def get_batch(self) -> "TrajectoryBatch":
         """TODO"""
         assert self.next_index == self.capacity
-        self.ptr, self.espisode_start_index = 0, 0
-        # # the next two lines implement the advantage normalization trick
-        # adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
-        # self.adv_buf = (self.adv_buf - adv_mean) / adv_std
-        # data = dict(obs=self.obs_buf, act=self.act_buf, ret=self.ret_buf,
-        #             adv=self.adv_buf, logp=self.logp_buf)
-        # return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
-        pass
+        self.next_index = 0
+        self.espisode_start_index = 0
+        advantage_mean = np.mean(self.advantages)
+        advantage_std = np.std(self.advantages)
+        self.advantages = (self.advantages - advantage_mean) / advantage_std
+        return TrajectoryBatch(
+            states=self.states,
+            actions=self.actions,
+            returns=self.returns,
+            advantages=self.advantages,
+            logps=self.logps,
+        )
 
 
 @dataclass
@@ -379,20 +389,20 @@ class TrajectoryBatch:
     states: np.ndarray
     actions: np.ndarray
     advantages: np.ndarray
-    logp: Tensor
+    logps: np.ndarray
     returns: np.ndarray
 
 
 @dataclass
 class PolicyInfo:
     approximate_kl: float
-    entropy: float
+    mean_entropy: float
     clipped_fraction: float
 
 
 def count_parameters(module: nn.Module) -> int:
     """Returns the total number of parameters in a NN module"""
-    return sum(np.prod(p.shape) for p in module.parameters())
+    return int(sum(np.prod(p.shape) for p in module.parameters()))
 
 
 def cumulative_sum(x: np.ndarray, gamma: float) -> np.ndarray:
