@@ -2,11 +2,12 @@
 # It doesn't do much better than DQN but it is slightly more consistent at hill-climbing.
 
 from dataclasses import dataclass
+from typing import final, override
+
 import gymnasium as gym
 import numpy as np
 import torch
 from gymnasium.spaces import Box, Discrete
-from typing import final, override
 from torch import Tensor, float32, int32, nn
 from torch.distributions import Categorical
 from torch.optim import AdamW
