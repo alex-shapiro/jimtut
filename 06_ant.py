@@ -186,9 +186,9 @@ class CategoricalActor(nn.Module):
         self,
         states: Tensor,
         actions: Tensor | None = None,
-    ) -> tuple[Tensor, Tensor | None]:
+    ) -> tuple[Categorical, Tensor | None]:
         policy = self.policy(states)
-        logp_actions = policy.log_prob(actions) if actions else None
+        logp_actions = typing.cast(Tensor | None, policy.log_prob(actions) if actions else None)
         return policy, logp_actions
 
     def policy(self, states: Tensor) -> Categorical:
@@ -234,7 +234,7 @@ class GaussianActor(nn.Module):
         return Normal(mu, std)
 
     def logprob(self, policy: Normal, action: Tensor) -> Tensor:
-        return policy.log_prob(action).sum(axis=-1)
+        return typing.cast(Tensor, policy.log_prob(action).sum(axis=-1)) # pyright: ignore[reportCallIssue]
 
 
 @final
