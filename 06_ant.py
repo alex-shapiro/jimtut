@@ -249,9 +249,9 @@ class Critic(nn.Module):
         super().__init__() # pyright: ignore[reportUnknownMemberType]
         self.value_net = nn.Sequential(
             nn.Linear(d_state, d_hidden),
-            activation,
+            activation(),
             nn.Linear(d_hidden, d_hidden),
-            activation,
+            activation(),
             nn.Linear(d_hidden, 1),
         )
 
