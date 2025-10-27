@@ -191,8 +191,10 @@ class CategoricalActor(nn.Module):
         actions: Tensor | None = None,
     ) -> tuple[Categorical, Tensor | None]:
         policy = self.policy(states)
-        logp_actions = typing.cast(Tensor | None, policy.log_prob(actions) if actions else None)
-        return policy, logp_actions
+        logp = None
+        if actions is not None:
+            logp = self.logprob(policy, actions)
+        return policy, logp
 
     def policy(self, states: Tensor) -> Categorical:
         logits = typing.cast(Tensor, self.logits_net(states)) # pyright: ignore[reportCallIssue, reportUnknownVariableType]
@@ -226,8 +228,10 @@ class GaussianActor(nn.Module):
 
     def forward(self, tensor: Tensor, actions: Tensor | None) -> tuple[Normal, Tensor | None]:
         policy = self.policy(tensor)
-        logp_actions = self.logprob(policy, actions) if actions else None
-        return policy, logp_actions
+        logp = None
+        if actions is not None:
+            logp = self.logprob(policy, actions)
+        return policy, logp
 
     def policy(self, state: Tensor) -> Normal:
         mu = self.mu_net(state)
