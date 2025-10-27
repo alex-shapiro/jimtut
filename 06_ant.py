@@ -19,7 +19,7 @@ class AntAgent:
         self,
         seed: int = 2025,
         steps_per_epoch: int = 4000,
-        epochs: int = 50,
+        epochs: int = 500,
         gamma: float = 0.99,
         clip_ratio: float = 0.2,
         pi_lr: float = 3e-4,
@@ -34,13 +34,17 @@ class AntAgent:
         super().__init__()
 
         self.env: gym.Env[np.ndarray, np.ndarray] = gym.make("Ant-v5")  # pyright: ignore[reportUnknownMemberType]
+        self.eval_env: gym.Env[np.ndarray, np.ndarray] = gym.make(
+            "Ant-v5",
+            render_mode="human",
+        )
         state_space: Box = self.env.observation_space  # pyright: ignore[reportAssignmentType]
         action_space: Box = self.env.action_space  # pyright: ignore[reportAssignmentType]
 
         # RNG seeds
         np.random.seed(seed)
         torch.manual_seed(seed)  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
-        self.env.action_space.seed(seed)  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
+        self.env.action_space.seed(seed)  # pyright: ignore[reportUnusedCallResult]
         self.seed = seed
 
         # trajectory buffer
@@ -74,7 +78,7 @@ class AntAgent:
         self.value_optimizer = AdamW(self.actor_critic.v.parameters(), lr=value_lr)
 
     def train(self):
-        for epoch in range(self.epochs):
+        for epoch in range(1, self.epochs + 1):
             print(f"\nEpoch {epoch}")
             state, _ = self.env.reset()
             episode_return = 0.0
@@ -105,6 +109,22 @@ class AntAgent:
                     episode_return = 0
 
             self.update()
+            if epoch % 20 == 0:
+                self.evaluate(n_episodes=1)
+
+    def evaluate(self, n_episodes=2):
+        for episode in range(n_episodes):
+            state, _ = self.eval_env.reset()
+            done = False
+            episode_reward = 0.0
+            while not done:
+                state = torch.as_tensor(state, dtype=torch.float32)
+                policy = self.actor_critic.pi.policy(state)
+                action = policy.sample().numpy()
+                state, reward, is_done, is_truncated, _ = self.eval_env.step(action)
+                episode_reward += float(reward)
+                done = is_done or is_truncated
+            print(f"eval episode reward: {episode_reward}")
 
     def update(self):
         batch = self.trajectories.get_batch().as_torch()
