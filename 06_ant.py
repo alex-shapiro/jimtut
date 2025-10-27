@@ -1,5 +1,6 @@
 # Mujoco Ant agent using PPO (proximal policy optimization)
 
+import typing
 from dataclasses import dataclass
 from typing import final
 
@@ -170,7 +171,7 @@ class CategoricalActor(nn.Module):
         d_action: int,
         activation: nn.Module,
     ):
-        super().__init__()
+        super().__init__() # pyright: ignore[reportUnknownMemberType]
         self.logits_net = (
             nn.Sequential(
                 nn.Linear(d_state, d_hidden),
@@ -186,16 +187,16 @@ class CategoricalActor(nn.Module):
         states: Tensor,
         actions: Tensor | None = None,
     ) -> tuple[Tensor, Tensor | None]:
-        policy = self._policy(states)
+        policy = self.policy(states)
         logp_actions = policy.log_prob(actions) if actions else None
         return policy, logp_actions
 
-    def _policy(self, states: Tensor) -> Categorical:
-        logits = self.logits_net(states)
+    def policy(self, states: Tensor) -> Categorical:
+        logits = typing.cast(Tensor, self.logits_net(states)) # pyright: ignore[reportCallIssue, reportUnknownVariableType]
         return Categorical(logits=logits)
 
-    def _logprob(self, policy: Categorical, action: Tensor) -> Tensor:
-        return policy.log_prob(action)
+    def logprob(self, policy: Categorical, action: Tensor) -> Tensor:
+        return typing.cast(Tensor, policy.log_prob(action))
 
 
 @final
@@ -209,7 +210,7 @@ class GaussianActor(nn.Module):
         d_action: int,
         activation: nn.Module,
     ):
-        super().__init__()
+        super().__init__() # pyright: ignore[reportUnknownMemberType]
         log_std = -0.5 * np.ones(d_action, dtype=np.float32)
         self.log_std = torch.nn.Parameter(torch.as_tensor(log_std))
         self.mu_net = nn.Sequential(
@@ -222,17 +223,17 @@ class GaussianActor(nn.Module):
 
     def forward(
         self, states: Tensor, actions: Tensor | None
-    ) -> tuple[Tensor, Tensor | None]:
-        policy = self._policy(states)
-        logp_actions = self._logprob(policy, actions) if actions else None
+    ) -> tuple[Normal, Tensor | None]:
+        policy = self.policy(states)
+        logp_actions = self.logprob(policy, actions) if actions else None
         return policy, logp_actions
 
-    def _policy(self, states: Tensor) -> Normal:
+    def policy(self, states: Tensor) -> Normal:
         mu = self.mu_net(states)
         std = torch.exp(self.log_std)
         return Normal(mu, std)
 
-    def _logprob(self, policy: Normal, action: Tensor) -> Tensor:
+    def logprob(self, policy: Normal, action: Tensor) -> Tensor:
         return policy.log_prob(action).sum(axis=-1)
 
 
@@ -241,7 +242,7 @@ class Critic(nn.Module):
     """Value prediction over 1D spaces"""
 
     def __init__(self, d_state: int, d_hidden: int, activation: nn.Module):
-        super().__init__()
+        super().__init__() # pyright: ignore[reportUnknownMemberType]
         self.value_net = nn.Sequential(
             nn.Linear(d_state, d_hidden),
             activation,
@@ -263,7 +264,7 @@ class ActorCritic(nn.Module):
         d_hidden: int = 64,
         activation: nn.Module = nn.Tanh,
     ):
-        super().__init__()
+        super().__init__() # pyright: ignore[reportUnknownMemberType]
         if isinstance(action_space, Box):
             self.pi = GaussianActor(
                 d_space=state_space.shape[0],
@@ -286,15 +287,15 @@ class ActorCritic(nn.Module):
 
     def step(self, state: Tensor) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         with torch.no_grad():
-            policy = self.pi._policy(state)
+            policy = self.pi.policy(state)
             action = policy.sample()
-            logp_action = self.pi._logprob(policy, action)
+            logp_action = self.pi.logprob(policy, action)
             v = self.v(state)
             return (action.numpy(), logp_action.numpy(), v.numpy())
 
     def act(self, state: Tensor) -> np.ndarray:
         with torch.no_grad():
-            return self.pi._policy(state).sample().numpy()
+            return self.pi.policy(state).sample().numpy()
 
 
 @final
@@ -323,7 +324,7 @@ class TrajectoryBuffer:
     def push(
         self,
         state: np.ndarray,
-        action: float,
+        action: np.ndarray,
         logp: float,
         expected_value: float,
         reward: float,
