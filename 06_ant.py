@@ -7,10 +7,10 @@ from typing import final
 import gymnasium as gym
 import numpy as np
 import torch
-from torch.optim import AdamW
 from gymnasium.spaces import Box, Discrete
 from torch import Tensor, nn
 from torch.distributions import Categorical, Normal
+from torch.optim import AdamW
 
 
 @final
@@ -225,15 +225,13 @@ class GaussianActor(nn.Module):
             nn.Linear(d_hidden, d_action),
         )
 
-    def forward(
-        self, states: Tensor, actions: Tensor | None
-    ) -> tuple[Normal, Tensor | None]:
-        policy = self.policy(states)
+    def forward(self, tensor: Tensor, actions: Tensor | None) -> tuple[Normal, Tensor | None]:
+        policy = self.policy(tensor)
         logp_actions = self.logprob(policy, actions) if actions else None
         return policy, logp_actions
 
-    def policy(self, states: Tensor) -> Normal:
-        mu = self.mu_net(states)
+    def policy(self, state: Tensor) -> Normal:
+        mu = self.mu_net(state)
         std = torch.exp(self.log_std)
         return Normal(mu, std)
 
