@@ -79,7 +79,7 @@ class AntAgent:
             episode_length = 0
 
             for t in range(self.steps_per_epoch):
-                action, logp_action, value = self.actor_critic.step(torch.as_tensor(state))
+                action, logp_action, value = self.actor_critic.step(torch.as_tensor(state, dtype=torch.float32))
                 next_state, reward, done, truncated, _ = self.env.step(action)
                 episode_return += value
                 episode_length += 1
@@ -94,7 +94,7 @@ class AntAgent:
 
                 state = next_state
                 if done or truncated or (t == self.steps_per_epoch - 1):
-                    _, _, value = self.actor_critic.step(torch.as_tensor(state))
+                    _, _, value = self.actor_critic.step(torch.as_tensor(state, dtype=torch.float32))
                     self.trajectories.push_episode_end(value)
                     state, _ = self.env.reset()
                     episode_return = 0
@@ -103,7 +103,7 @@ class AntAgent:
             self.update()
 
     def update(self):
-        batch = self.trajectories.get_batch()
+        batch = self.trajectories.get_batch().as_torch()
         policy_loss = torch.zeros(1)
         value_loss = torch.zeros(1)
         policy_loss_old, _ = self.policy_loss(batch)
@@ -132,18 +132,17 @@ class AntAgent:
         print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}") # pyright: ignore[reportUnknownMemberType]
         print(f"Δ value loss: {value_loss.item() - value_loss_old}") # pyright: ignore[reportUnknownMemberType]
 
-    def policy_loss(self, batch: "TrajectoryBatch") -> tuple[Tensor, "PolicyInfo"]:
+    def policy_loss(self, batch: "TrajectoryTorchBatch") -> tuple[Tensor, "PolicyInfo"]:
         # policy loss
         pi: Normal
         logps: Tensor
-        batch_logps = torch.as_tensor(batch.logps)
         pi, logps = self.actor_critic.pi(batch.states, batch.actions)
-        ratio = torch.exp(logps - torch.as_tensor(batch_logps))
+        ratio = torch.exp(logps - torch.as_tensor(batch.logps, dtype=torch.float32))
         clipped_adv = torch.clamp(ratio, 1 - self.clip_ratio)
-        policy_loss = (torch.min(ratio * torch.as_tensor(batch.advantages), clipped_adv)).mean()
+        policy_loss = (torch.min(ratio * torch.as_tensor(batch.advantages, dtype=torch.float32), clipped_adv)).mean()
 
         # additional policy info
-        approximate_kl = (batch_logps - logps).mean().item()
+        approximate_kl = (batch.logps - logps).mean().item()
         mean_entropy = pi.entropy().mean().item()
         clipped_fraction = (
             (ratio.gt(1 + self.clip_ratio) | ratio.lt(1 - self.clip_ratio))
@@ -159,8 +158,8 @@ class AntAgent:
 
         return policy_loss, policy_info
 
-    def value_loss(self, batch: "TrajectoryBatch") -> Tensor:
-        state = torch.as_tensor(batch.states)
+    def value_loss(self, batch: "TrajectoryTorchBatch") -> Tensor:
+        state = torch.as_tensor(batch.states, dtype=torch.float32)
         return ((self.actor_critic.v(state) - batch.returns) ** 2).mean()
 
 
@@ -216,7 +215,7 @@ class GaussianActor(nn.Module):
     ):
         super().__init__() # pyright: ignore[reportUnknownMemberType]
         log_std = -0.5 * np.ones(d_action, dtype=np.float32)
-        self.log_std = torch.nn.Parameter(torch.as_tensor(log_std))
+        self.log_std = torch.nn.Parameter(torch.as_tensor(log_std, dtype=torch.float32))
         self.mu_net = nn.Sequential(
             nn.Linear(d_state, d_hidden),
             activation(),
@@ -389,6 +388,23 @@ class TrajectoryBatch:
     advantages: np.ndarray
     logps: np.ndarray
     returns: np.ndarray
+
+    def as_torch(self) -> "TrajectoryTorchBatch":
+        return TrajectoryTorchBatch(
+            states=torch.as_tensor(self.states, dtype=torch.float32),
+            actions=torch.as_tensor(self.actions, dtype=torch.float32),
+            advantages=torch.as_tensor(self.advantages, dtype=torch.float32),
+            logps=torch.as_tensor(self.logps, dtype=torch.float32),
+            returns=torch.as_tensor(self.returns, dtype=torch.float32),
+        )
+
+@dataclass
+class TrajectoryTorchBatch:
+    states: Tensor
+    actions: Tensor
+    advantages: Tensor
+    logps: Tensor
+    returns: Tensor
 
 
 @dataclass
