@@ -33,9 +33,9 @@ class AntAgent:
     ):
         super().__init__()
 
-        self.env: gym.Env[np.ndarray, np.ndarray] = gym.make("Ant-v5") # pyright: ignore[reportUnknownMemberType]
-        state_space: Box = self.env.observation_space # pyright: ignore[reportAssignmentType]
-        action_space: Box = self.env.action_space # pyright: ignore[reportAssignmentType]
+        self.env: gym.Env[np.ndarray, np.ndarray] = gym.make("Ant-v5")  # pyright: ignore[reportUnknownMemberType]
+        state_space: Box = self.env.observation_space  # pyright: ignore[reportAssignmentType]
+        action_space: Box = self.env.action_space  # pyright: ignore[reportAssignmentType]
 
         # RNG seeds
         np.random.seed(seed)
@@ -79,7 +79,9 @@ class AntAgent:
             episode_length = 0
 
             for t in range(self.steps_per_epoch):
-                action, logp_action, value = self.actor_critic.step(torch.as_tensor(state, dtype=torch.float32))
+                action, logp_action, value = self.actor_critic.step(
+                    torch.as_tensor(state, dtype=torch.float32)
+                )
                 next_state, reward, done, truncated, _ = self.env.step(action)
                 episode_return += value
                 episode_length += 1
@@ -94,7 +96,9 @@ class AntAgent:
 
                 state = next_state
                 if done or truncated or (t == self.steps_per_epoch - 1):
-                    _, _, value = self.actor_critic.step(torch.as_tensor(state, dtype=torch.float32))
+                    _, _, value = self.actor_critic.step(
+                        torch.as_tensor(state, dtype=torch.float32)
+                    )
                     self.trajectories.push_episode_end(value)
                     state, _ = self.env.reset()
                     episode_return = 0
@@ -116,21 +120,21 @@ class AntAgent:
             if policy_info.approximate_kl > 1.5 * self.target_kl:
                 print(f"early stopping at step {i} due to reaching max KL")
                 break
-            policy_loss.backward() # pyright: ignore[reportUnknownMemberType]
-            self.policy_optimizer.step() # pyright: ignore[reportUnknownMemberType]
+            policy_loss.backward()  # pyright: ignore[reportUnknownMemberType]
+            self.policy_optimizer.step()  # pyright: ignore[reportUnknownMemberType]
 
         # learn value function
         for i in range(self.train_value_iters):
             self.value_optimizer.zero_grad()
             value_loss = self.value_loss(batch)
-            value_loss.backward() # pyright: ignore[reportUnknownMemberType]
-            self.value_optimizer.step() # pyright: ignore[reportUnknownMemberType]
+            value_loss.backward()  # pyright: ignore[reportUnknownMemberType]
+            self.value_optimizer.step()  # pyright: ignore[reportUnknownMemberType]
 
         # log changes from the update
         print(f"policy loss: {policy_loss_old}")
         print(f"value loss: {value_loss_old}")
-        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}") # pyright: ignore[reportUnknownMemberType]
-        print(f"Δ value loss: {value_loss.item() - value_loss_old}") # pyright: ignore[reportUnknownMemberType]
+        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}")  # pyright: ignore[reportUnknownMemberType]
+        print(f"Δ value loss: {value_loss.item() - value_loss_old}")  # pyright: ignore[reportUnknownMemberType]
 
     def policy_loss(self, batch: "TrajectoryTorchBatch") -> tuple[Tensor, "PolicyInfo"]:
         # policy loss
@@ -139,7 +143,12 @@ class AntAgent:
         pi, logps = self.actor_critic.pi(batch.states, batch.actions)
         ratio = torch.exp(logps - torch.as_tensor(batch.logps, dtype=torch.float32))
         clipped_adv = torch.clamp(ratio, 1 - self.clip_ratio)
-        policy_loss = (torch.min(ratio * torch.as_tensor(batch.advantages, dtype=torch.float32), clipped_adv)).mean()
+        policy_loss = (
+            torch.min(
+                ratio * torch.as_tensor(batch.advantages, dtype=torch.float32),
+                clipped_adv,
+            )
+        ).mean()
 
         # additional policy info
         approximate_kl = (batch.logps - logps).mean().item()
@@ -174,7 +183,7 @@ class CategoricalActor(nn.Module):
         d_action: int,
         activation: nn.Module,
     ):
-        super().__init__() # pyright: ignore[reportUnknownMemberType]
+        super().__init__()  # pyright: ignore[reportUnknownMemberType]
         self.logits_net = (
             nn.Sequential(
                 nn.Linear(d_state, d_hidden),
@@ -197,7 +206,7 @@ class CategoricalActor(nn.Module):
         return policy, logp
 
     def policy(self, states: Tensor) -> Categorical:
-        logits = typing.cast(Tensor, self.logits_net(states)) # pyright: ignore[reportCallIssue, reportUnknownVariableType]
+        logits = typing.cast(Tensor, self.logits_net(states))  # pyright: ignore[reportCallIssue, reportUnknownVariableType]
         return Categorical(logits=logits)
 
     def logprob(self, policy: Categorical, action: Tensor) -> Tensor:
@@ -215,7 +224,7 @@ class GaussianActor(nn.Module):
         d_action: int,
         activation: nn.Module,
     ):
-        super().__init__() # pyright: ignore[reportUnknownMemberType]
+        super().__init__()  # pyright: ignore[reportUnknownMemberType]
         log_std = -0.5 * np.ones(d_action, dtype=np.float32)
         self.log_std = torch.nn.Parameter(torch.as_tensor(log_std, dtype=torch.float32))
         self.mu_net = nn.Sequential(
@@ -226,7 +235,9 @@ class GaussianActor(nn.Module):
             nn.Linear(d_hidden, d_action),
         )
 
-    def forward(self, tensor: Tensor, actions: Tensor | None) -> tuple[Normal, Tensor | None]:
+    def forward(
+        self, tensor: Tensor, actions: Tensor | None
+    ) -> tuple[Normal, Tensor | None]:
         policy = self.policy(tensor)
         logp = None
         if actions is not None:
@@ -239,7 +250,7 @@ class GaussianActor(nn.Module):
         return Normal(mu, std)
 
     def logprob(self, policy: Normal, action: Tensor) -> Tensor:
-        return typing.cast(Tensor, policy.log_prob(action).sum(axis=-1)) # pyright: ignore[reportCallIssue]
+        return typing.cast(Tensor, policy.log_prob(action).sum(axis=-1))  # pyright: ignore[reportCallIssue]
 
 
 @final
@@ -247,7 +258,7 @@ class Critic(nn.Module):
     """Value prediction over 1D spaces"""
 
     def __init__(self, d_state: int, d_hidden: int, activation: nn.Module):
-        super().__init__() # pyright: ignore[reportUnknownMemberType]
+        super().__init__()  # pyright: ignore[reportUnknownMemberType]
         self.value_net = nn.Sequential(
             nn.Linear(d_state, d_hidden),
             activation(),
@@ -267,9 +278,9 @@ class ActorCritic(nn.Module):
         state_space: Box,
         action_space: Box | Discrete,
         d_hidden: int = 64,
-        activation: nn.Module = nn.Tanh, # pyright: ignore[reportArgumentType]
+        activation: nn.Module = nn.Tanh,  # pyright: ignore[reportArgumentType]
     ):
-        super().__init__() # pyright: ignore[reportUnknownMemberType]
+        super().__init__()  # pyright: ignore[reportUnknownMemberType]
         if isinstance(action_space, Box):
             self.pi = GaussianActor(
                 d_state=state_space.shape[0],
@@ -294,7 +305,7 @@ class ActorCritic(nn.Module):
         with torch.no_grad():
             policy = self.pi.policy(state)
             action = policy.sample()
-            logp_action = self.pi.logprob(policy, action) # pyright: ignore[reportArgumentType]
+            logp_action = self.pi.logprob(policy, action)  # pyright: ignore[reportArgumentType]
             v = float(self.v(state))
             return (action.numpy(), logp_action.numpy(), v)
 
@@ -401,6 +412,7 @@ class TrajectoryBatch:
             logps=torch.as_tensor(self.logps, dtype=torch.float32),
             returns=torch.as_tensor(self.returns, dtype=torch.float32),
         )
+
 
 @dataclass
 class TrajectoryTorchBatch:
