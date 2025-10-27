@@ -48,6 +48,8 @@ class AntAgent:
             capacity=4000,
             state_shape=list(state_space.shape),
             action_shape=list(action_space.shape),
+            gamma=gamma,
+            lamda=lamda,
         )
 
         # hyperparameters
@@ -75,16 +77,14 @@ class AntAgent:
         for epoch in range(self.epochs):
             print(f"\nEpoch {epoch}")
             state, _ = self.env.reset()
-            episode_return = 0
-            episode_length = 0
+            episode_return = 0.0
 
             for t in range(self.steps_per_epoch):
                 action, logp_action, value = self.actor_critic.step(
                     torch.as_tensor(state, dtype=torch.float32)
                 )
                 next_state, reward, done, truncated, _ = self.env.step(action)
-                episode_return += value
-                episode_length += 1
+                episode_return += float(reward)
 
                 self.trajectories.push(
                     state=state,
@@ -99,17 +99,15 @@ class AntAgent:
                     _, _, value = self.actor_critic.step(
                         torch.as_tensor(state, dtype=torch.float32)
                     )
-                    self.trajectories.push_episode_end(value)
+                    is_truncated = truncated or t == self.steps_per_epoch - 1
+                    self.trajectories.push_episode_end(value, is_truncated=is_truncated)
                     state, _ = self.env.reset()
                     episode_return = 0
-                    episode_length = 0
 
             self.update()
 
     def update(self):
         batch = self.trajectories.get_batch().as_torch()
-        policy_loss = torch.zeros(1)
-        value_loss = torch.zeros(1)
         policy_loss_old, _ = self.policy_loss(batch)
         value_loss_old = self.value_loss(batch)
 
@@ -133,22 +131,19 @@ class AntAgent:
         # log changes from the update
         print(f"policy loss: {policy_loss_old}")
         print(f"value loss: {value_loss_old}")
-        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old}")  # pyright: ignore[reportUnknownMemberType]
-        print(f"Δ value loss: {value_loss.item() - value_loss_old}")  # pyright: ignore[reportUnknownMemberType]
+        print(f"Δ policy loss: {policy_loss.item() - policy_loss_old.item()}")
+        print(f"Δ value loss: {value_loss.item() - value_loss_old.item()}")
 
     def policy_loss(self, batch: "TrajectoryTorchBatch") -> tuple[Tensor, "PolicyInfo"]:
         # policy loss
         pi: Normal
         logps: Tensor
-        pi, logps = self.actor_critic.pi(batch.states, batch.actions)
-        ratio = torch.exp(logps - torch.as_tensor(batch.logps, dtype=torch.float32))
-        clipped_adv = torch.clamp(ratio, 1 - self.clip_ratio)
-        policy_loss = (
-            torch.min(
-                ratio * torch.as_tensor(batch.advantages, dtype=torch.float32),
-                clipped_adv,
-            )
-        ).mean()
+        pi, logps = self.actor_critic.pi(batch.states, batch.actions)  # pyright: ignore[reportAny]
+        ratio = torch.exp(logps - batch.logps)
+        min = 1 - self.clip_ratio
+        max = 1 + self.clip_ratio
+        clipped_adv = torch.clamp(ratio, min, max) * batch.advantages
+        policy_loss = -torch.min(ratio * batch.advantages, clipped_adv).mean()
 
         # additional policy info
         approximate_kl = (batch.logps - logps).mean().item()
@@ -168,8 +163,7 @@ class AntAgent:
         return policy_loss, policy_info
 
     def value_loss(self, batch: "TrajectoryTorchBatch") -> Tensor:
-        state = torch.as_tensor(batch.states, dtype=torch.float32)
-        return ((self.actor_critic.v(state) - batch.returns) ** 2).mean()
+        return ((self.actor_critic.v(batch.states) - batch.returns) ** 2).mean()
 
 
 @final
@@ -184,14 +178,12 @@ class CategoricalActor(nn.Module):
         activation: nn.Module,
     ):
         super().__init__()  # pyright: ignore[reportUnknownMemberType]
-        self.logits_net = (
-            nn.Sequential(
-                nn.Linear(d_state, d_hidden),
-                activation(),
-                nn.Linear(d_hidden, d_hidden),
-                activation(),
-                nn.Linear(d_hidden, d_action),
-            ),
+        self.logits_net = nn.Sequential(
+            nn.Linear(d_state, d_hidden),
+            activation(),
+            nn.Linear(d_hidden, d_hidden),
+            activation(),
+            nn.Linear(d_hidden, d_action),
         )
 
     def forward(
@@ -345,7 +337,7 @@ class TrajectoryBuffer:
         # index for the next insert
         self.next_index = 0
         # index for the start of the current episode
-        self.espisode_start_index = 0
+        self.episode_start_index = 0
         # buffer capacity
         self.capacity = capacity
 
@@ -364,10 +356,11 @@ class TrajectoryBuffer:
         self.rewards[self.next_index] = reward
         self.next_index += 1
 
-    def push_episode_end(self, value: float):
-        range = slice(self.espisode_start_index, self.next_index)
+    def push_episode_end(self, value: float, is_truncated: bool):
+        range = slice(self.episode_start_index, self.next_index)
         ep_values = np.append(self.values[range], np.array(value))
-        ep_rewards = np.append(self.rewards[range], np.array(value))
+        final_reward = value if is_truncated else 0.0
+        ep_rewards = np.append(self.rewards[range], final_reward)
         # calculate GAE-Lambda advantage
         # all rewards except the last one
         # plus discounted values
@@ -377,13 +370,13 @@ class TrajectoryBuffer:
 
         # set returns (rewards-to-go) as the cumulative sum of episode rewards
         self.returns[range] = cumulative_sum(ep_rewards, self.gamma)[:-1]
-        self.espisode_start_index = self.next_index
+        self.episode_start_index = self.next_index
 
     def get_batch(self) -> "TrajectoryBatch":
         """TODO"""
         assert self.next_index == self.capacity
         self.next_index = 0
-        self.espisode_start_index = 0
+        self.episode_start_index = 0
         advantage_mean = np.mean(self.advantages)
         advantage_std = np.std(self.advantages)
         self.advantages = (self.advantages - advantage_mean) / advantage_std
