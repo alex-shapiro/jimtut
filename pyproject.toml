@@ -8,6 +8,7 @@ dependencies = [
     "gymnasium[classic-control,mujoco]>=1.2.1",
     "matplotlib>=3.10.7",
     "numpy>=2.3.3",
+    "pygame>=2.6.1",
     "torch>=2.9.0",
 ]
 

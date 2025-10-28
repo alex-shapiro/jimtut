@@ -244,6 +244,7 @@ dependencies = [
     { name = "gymnasium", extra = ["classic-control", "mujoco"] },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "pygame" },
     { name = "torch" },
 ]
 
@@ -258,6 +259,7 @@ requires-dist = [
     { name = "gymnasium", extras = ["classic-control", "mujoco"], specifier = ">=1.2.1" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.3.3" },
+    { name = "pygame", specifier = ">=2.6.1" },
     { name = "torch", specifier = ">=2.9.0" },
 ]
 
