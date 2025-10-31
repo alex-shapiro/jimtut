@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import final, Never, Literal
+from typing import final, Never, Literal, override
 import gymnasium as gym
 import numpy as np
 import pygame
@@ -10,7 +10,7 @@ from pygame import Surface
 
 
 @final
-class HunterEnv(gym.Env):
+class HunterEnv(gym.Env["HunterObs", int]):
     def __init__(self, size: int = 9, render_mode: Literal["human"] | None = None):
         super().__init__()
         self.size = 9
@@ -31,10 +31,10 @@ class HunterEnv(gym.Env):
         )
         self.action_space = Discrete(4)
         self.action_to_direction = {
-            0: [0, 1],  # up
-            1: [1, 0],  # right
-            2: [0, -1],  # down
-            3: [-1, 0],  # left
+            0: np.array([0, 1]),  # up
+            1: np.array([1, 0]),  # right
+            2: np.array([0, -1]),  # down
+            3: np.array([-1, 0]),  # left
         }
 
         # rendering
@@ -42,24 +42,26 @@ class HunterEnv(gym.Env):
         self.window: Surface | None = None
         self.clock = None
 
+    @override
     def reset(
         self,
         seed: int | None = None,
     ) -> tuple["HunterObs", dict[Never, Never]]:
-        super().reset(seed=seed)
+        _ = super().reset(seed=seed)
         self.t = 0
         self.predator_pos = self.random_pos()
         self.prey_pos = self.random_pos()
-        while np.equal(self.predator_pos, self.prey_pos):
+        while np.equal(self.predator_pos, self.prey_pos).all():
             self.prey_pos = self.random_pos()
         obs = self._get_obs()
-        return obs, {}
+        info = self._get_info()
+        return obs, info
 
     def _get_obs(self) -> "HunterObs":
         return HunterObs(
             current_player=self.current_player,
-            predator=self.predator_pos,
-            prey=self.prey_pos,
+            predator_pos=self.predator_pos,
+            prey_pos=self.prey_pos,
         )
 
     def _get_info(self) -> dict[Never, Never]:
@@ -69,29 +71,30 @@ class HunterEnv(gym.Env):
         if self.render_mode != "human":
             return
         if self.window is None:
-            pygame.init()
+            _ = pygame.init()
             pygame.display.init()
             self.window = pygame.display.set_mode(self.window_size, self.window_size)
         if self.clock is None:
             self.clock = pygame.time.Clock()
         canvas = Surface((self.window_size, self.window_size))
-        canvas.fill((255, 255, 255))
+        _ = canvas.fill((255, 255, 255))
         square_px = self.window_size / self.size
-        pygame.draw.rect(
+        _ = pygame.draw.rect(
             suface=canvas,
             color=(255, 0, 0),
             rect=pygame.Rect(square_px * self.predator_pos, (square_px, square_px)),
         )
-        pygame.draw.rect(
+        _ = pygame.draw.rect(
             surface=canvas,
             color=(0, 255, 0),
             rect=pygame.Rect(square_px * self.prey_pos, (square_px, square_px)),
         )
-        self.window.blit(canvas, canvas.get_rect())
+        _ = self.window.blit(canvas, canvas.get_rect())
         pygame.event.pump()
         pygame.display.update()
-        self.clock.tick(4)  # TODO: tune FPS
+        _ = self.clock.tick(4)  # TODO: tune FPS
 
+    @override
     def step(
         self, action: int
     ) -> tuple["HunterObs", float, bool, bool, dict[Never, Never]]:
@@ -106,16 +109,17 @@ class HunterEnv(gym.Env):
             reward_multiplier = -1
 
         obs = self._get_obs()
-        done = self.predator_pos == self.prey_pos
-        base_reward = 0 if done else -1
+        done = bool(np.equal(self.predator_pos, self.prey_pos).all())
+        base_reward = 0 if done else 1
         reward = base_reward * reward_multiplier
         truncated = self.t >= self.timeout
+        info = self._get_info()
         self.t += 1
         self.current_player = self.current_player.other()
-        return (obs, reward, done, truncated, {})
+        return (obs, reward, done, truncated, info)
 
     def random_pos(self) -> np.ndarray:
-        return self.np.random.integer(0, self.size, size=2, dtype=int)
+        return self.np_random.integers(0, self.size, size=2, dtype=int)
 
     def add_pos(self, pos: np.ndarray, diff: np.ndarray) -> np.ndarray:
         return (pos + diff).clip(self.min_pos, self.max_pos)

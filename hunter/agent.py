@@ -21,12 +21,12 @@ class HunterGame:
 
             while not ended:
                 if obs.current_player == Player.PREDATOR:
-                    action = self.predator.act(obs)
-                    obs, reward, done, terminated = self.eval_env.step(action)
+                    action = self.predator.select_action(obs)
+                    obs, reward, done, terminated, _info = self.eval_env.step(action)
                     predator_reward += reward
                 else:
-                    action = self.prey.act(obs)
-                    obs, reward, done, terminated = self.eval_env.step(action)
+                    action = self.prey.select_action(obs)
+                    obs, reward, done, terminated, _info = self.eval_env.step(action)
                     prey_reward += reward
                 ended = done or terminated
 
