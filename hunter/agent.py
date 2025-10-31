@@ -1,6 +1,7 @@
+from typing import final
+
 import numpy as np
 
-from typing import final
 from hunter.env import HunterEnv, HunterObs, Player
 
 

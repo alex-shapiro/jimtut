@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import final, Never, Literal, override
+from typing import Any, Literal, final, override
+
 import gymnasium as gym
 import numpy as np
 import pygame
-
-from gymnasium.spaces import Dict, Box, Discrete
+from gymnasium.spaces import Box, Dict, Discrete
 from pygame import Surface
 
 
@@ -22,14 +22,14 @@ class HunterEnv(gym.Env["HunterObs", int]):
         self.min_pos = np.array([0, 0])
         self.max_pos = np.array([size - 1, size - 1])
         self.render_mode = render_mode
-        self.observation_space = Dict(
+        self.observation_space = Dict(  # pyright: ignore[reportAttributeAccessIssue]
             {
                 "current_player": Discrete(2),
-                "predator": Box(0, size - 1, shape=(2,), dtype=int),
-                "prey": Box(0, size - 1, shape=(2,), dtype=int),
+                "predator": Box(0, size - 1, shape=(2,), dtype=np.int64),
+                "prey": Box(0, size - 1, shape=(2,), dtype=np.int64),
             }
         )
-        self.action_space = Discrete(4)
+        self.action_space = Discrete(4)  # pyright: ignore[reportAttributeAccessIssue]
         self.action_to_direction = {
             0: np.array([0, 1]),  # up
             1: np.array([1, 0]),  # right
@@ -45,8 +45,10 @@ class HunterEnv(gym.Env["HunterObs", int]):
     @override
     def reset(
         self,
+        *,
         seed: int | None = None,
-    ) -> tuple["HunterObs", dict[Never, Never]]:
+        options: dict[str, Any] | None = None,  # pyright: ignore[reportExplicitAny]
+    ) -> tuple["HunterObs", dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
         _ = super().reset(seed=seed)
         self.t = 0
         self.predator_pos = self.random_pos()
@@ -64,7 +66,7 @@ class HunterEnv(gym.Env["HunterObs", int]):
             prey_pos=self.prey_pos,
         )
 
-    def _get_info(self) -> dict[Never, Never]:
+    def _get_info(self) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
         return {}
 
     def _render_frame(self):
@@ -73,21 +75,27 @@ class HunterEnv(gym.Env["HunterObs", int]):
         if self.window is None:
             _ = pygame.init()
             pygame.display.init()
-            self.window = pygame.display.set_mode(self.window_size, self.window_size)
+            self.window = pygame.display.set_mode((self.window_size, self.window_size))
         if self.clock is None:
             self.clock = pygame.time.Clock()
         canvas = Surface((self.window_size, self.window_size))
         _ = canvas.fill((255, 255, 255))
         square_px = self.window_size / self.size
         _ = pygame.draw.rect(
-            suface=canvas,
+            canvas,
             color=(255, 0, 0),
-            rect=pygame.Rect(square_px * self.predator_pos, (square_px, square_px)),
+            rect=pygame.Rect(
+                left_top=coordinate(square_px * self.predator_pos),
+                width_height=(square_px, square_px),
+            ),
         )
         _ = pygame.draw.rect(
             surface=canvas,
             color=(0, 255, 0),
-            rect=pygame.Rect(square_px * self.prey_pos, (square_px, square_px)),
+            rect=pygame.Rect(
+                left_top=coordinate(square_px * self.prey_pos),
+                width_height=(square_px, square_px),
+            ),
         )
         _ = self.window.blit(canvas, canvas.get_rect())
         pygame.event.pump()
@@ -97,7 +105,7 @@ class HunterEnv(gym.Env["HunterObs", int]):
     @override
     def step(
         self, action: int
-    ) -> tuple["HunterObs", float, bool, bool, dict[Never, Never]]:
+    ) -> tuple["HunterObs", float, bool, bool, dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
         if self.t > self.timeout:
             raise RuntimeError("environment has passed its timeout")
         diff = self.action_to_direction[action]
@@ -151,3 +159,7 @@ class Action(Enum):
 class Position:
     x: int
     y: int
+
+
+def coordinate(array: np.ndarray) -> tuple[float, float]:
+    return (float(array[0].item()), float(array[1].item()))  # pyright: ignore[reportAny]
